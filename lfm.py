@@ -21,7 +21,7 @@ class LFMMod(loader.Module):
                 validator=loader.validators.String()
             )
         )
-
+@loader.ratelimit
     async def lfmcmd(self, message):
         """Показать текущий трек"""
         api_key = self.config["api_key"]
