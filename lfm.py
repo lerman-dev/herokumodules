@@ -24,7 +24,7 @@ class LFMMod(loader.Module):
 
     @loader.ratelimit
     async def lfmcmd(self, message):
-        """Показать текущий трек"""
+        # ВСЕ строки внутри метода с 8 пробелами (4 + 4)
         api_key = self.config["api_key"]
         user = self.config["username"]
 
