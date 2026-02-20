@@ -6,6 +6,7 @@ import tempfile
 import random
 import string
 import re
+import json
 from hikka import loader, utils
 
 @loader.tds
@@ -30,8 +31,9 @@ class YTDLPMod(loader.Module):
     def rand(self, size=6):
         return ''.join(random.choices(string.ascii_lowercase + string.digits, k=size))
 
-    async def ytdlcmd(self, message):
-        """Использование: .ytdl <ссылка>"""
+    @loader.command()
+    async def ytdl(self, message):
+        """<ссылка> - скачать видео"""
         args = utils.get_args_raw(message)
         if not args:
             await message.edit("💀 Дай ссылку, унитаз 😏")
@@ -58,7 +60,6 @@ class YTDLPMod(loader.Module):
             )
             
             if stdout:
-                import json
                 try:
                     info = json.loads(stdout)
                     title = info.get('title', 'Неизвестно')
@@ -88,19 +89,30 @@ class YTDLPMod(loader.Module):
         if os.path.exists(path):
             os.remove(path)
 
-        # Используем более гибкий формат
-        cmd = f'yt-dlp -f "best[ext=mp4]/best" -o "{path}" "{url}" --no-playlist'
+        # ИСПРАВЛЕННАЯ КОМАНДА с параметрами для обхода ошибок
+        cmd = f'yt-dlp -f "best[ext=mp4]/best" ' \
+              f'--no-playlist ' \
+              f'--force-ipv4 ' \
+              f'--fragment-retries 10 ' \
+              f'--retries 10 ' \
+              f'--file-access-retries 10 ' \
+              f'--extractor-retries 10 ' \
+              f'--skip-unavailable-fragments ' \
+              f'--no-check-certificate ' \
+              f'--geo-bypass ' \
+              f'-o "{path}" "{url}"'
 
-        await message.edit("📥 Качаю... не дыши 🫁\n\nВывод команды:")
+        await message.edit("📥 Качаю... (использую улучшенные настройки)\n\nВывод команды:")
 
         process = await asyncio.create_subprocess_shell(
             cmd,
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT  # Объединяем stdout и stderr
+            stderr=asyncio.subprocess.STDOUT
         )
 
         output_lines = []
         last_update_time = asyncio.get_event_loop().time()
+        error_count = 0
         
         try:
             while True:
@@ -112,6 +124,10 @@ class YTDLPMod(loader.Module):
                     line = line.decode('utf-8', errors='ignore').strip()
                     if line:
                         output_lines.append(line)
+                        
+                        # Считаем ошибки фрагментов
+                        if "404 Not Found" in line:
+                            error_count += 1
                         
                         # Оставляем последние 5 строк
                         display_lines = output_lines[-5:]
@@ -128,6 +144,10 @@ class YTDLPMod(loader.Module):
                             progress_text += f"⚡ {speed_match.group(1)} "
                         if eta_match:
                             progress_text += f"⏱ {eta_match.group(1)}"
+                        
+                        # Добавляем счетчик ошибок если есть
+                        if error_count > 0:
+                            progress_text += f" ⚠️ {error_count} ошибок"
                         
                         # Обновляем сообщение не чаще чем раз в 2 секунды
                         current_time = asyncio.get_event_loop().time()
@@ -191,8 +211,9 @@ class YTDLPMod(loader.Module):
             except:
                 pass
 
-    async def ytmp3cmd(self, message):
-        """Скачать только аудио в MP3"""
+    @loader.command()
+    async def ytmp3(self, message):
+        """<ссылка> - скачать аудио в MP3"""
         args = utils.get_args_raw(message)
         if not args:
             await message.edit("💀 Дай ссылку, унитаз 😏")
@@ -203,14 +224,65 @@ class YTDLPMod(loader.Module):
         # Создаем временный файл с уникальным именем
         path = os.path.join(tempfile.gettempdir(), f"audio_{self.rand(10)}.mp3")
 
-        await message.edit("🎵 Качаю аудио...")
+        await message.edit("🎵 Получаю информацию...")
+
+        # Получаем информацию о видео
+        info_cmd = f'yt-dlp --dump-json --no-playlist "{url}"'
+        info_process = await asyncio.create_subprocess_shell(
+            info_cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        
+        try:
+            stdout, stderr = await asyncio.wait_for(
+                info_process.communicate(), timeout=30
+            )
+            
+            if stdout:
+                try:
+                    info = json.loads(stdout)
+                    title = info.get('title', 'Неизвестно')
+                    duration = info.get('duration', 0)
+                    uploader = info.get('uploader', 'Неизвестно')
+                    
+                    if duration:
+                        minutes = duration // 60
+                        seconds = duration % 60
+                        duration_str = f"{minutes}:{seconds:02d}"
+                    else:
+                        duration_str = "Неизвестно"
+                    
+                    await message.edit(
+                        f"🎵 Начинаю загрузку аудио...\n\n"
+                        f"📹 Название: {title[:50]}...\n"
+                        f"👤 Автор: {uploader}\n"
+                        f"⏱ Длительность: {duration_str}"
+                    )
+                except:
+                    pass
+        except:
+            pass
 
         # Удаляем старый файл если есть
         if os.path.exists(path):
             os.remove(path)
 
-        # Команда для скачивания аудио
-        cmd = f'yt-dlp -x --audio-format mp3 -o "{path}" "{url}" --no-playlist'
+        # Команда для скачивания аудио с улучшенными параметрами
+        cmd = f'yt-dlp -x --audio-format mp3 ' \
+              f'--audio-quality 0 ' \
+              f'--no-playlist ' \
+              f'--force-ipv4 ' \
+              f'--fragment-retries 10 ' \
+              f'--retries 10 ' \
+              f'--file-access-retries 10 ' \
+              f'--extractor-retries 10 ' \
+              f'--skip-unavailable-fragments ' \
+              f'--no-check-certificate ' \
+              f'--geo-bypass ' \
+              f'-o "{path}" "{url}"'
+
+        await message.edit("🎵 Качаю аудио...\n\nВывод команды:")
 
         process = await asyncio.create_subprocess_shell(
             cmd,
@@ -219,24 +291,43 @@ class YTDLPMod(loader.Module):
         )
 
         output_lines = []
+        last_update_time = asyncio.get_event_loop().time()
         
         try:
             while True:
-                line = await process.stdout.readline()
-                if not line:
-                    break
-                line = line.decode('utf-8', errors='ignore').strip()
-                if line:
-                    output_lines.append(line)
+                try:
+                    line = await asyncio.wait_for(process.stdout.readline(), 5.0)
+                    if not line:
+                        break
                     
-                    # Показываем прогресс
-                    if len(output_lines) % 3 == 0:  # Обновляем каждые 3 строки
-                        display = "\n".join(output_lines[-3:])
-                        await message.edit(f"🎵 Качаю аудио...\n```\n{display}\n```")
+                    line = line.decode('utf-8', errors='ignore').strip()
+                    if line:
+                        output_lines.append(line)
                         
-        except Exception as e:
+                        # Показываем прогресс
+                        display_lines = output_lines[-3:]
+                        
+                        # Ищем прогресс
+                        progress_match = re.search(r'(\d+\.\d+)%', line)
+                        
+                        current_time = asyncio.get_event_loop().time()
+                        if current_time - last_update_time > 2 or progress_match:
+                            display = "\n".join(display_lines)
+                            if len(display) > 500:
+                                display = "..." + display[-497:]
+                            
+                            await message.edit(
+                                f"🎵 Качаю аудио...\n"
+                                f"```\n{display}\n```"
+                            )
+                            last_update_time = current_time
+                            
+                except asyncio.TimeoutError:
+                    continue
+                    
+        except asyncio.CancelledError:
             process.kill()
-            await message.edit(f"💀 Ошибка: {e}")
+            await message.edit("💀 Загрузка прервана")
             return
 
         await process.wait()
