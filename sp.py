@@ -6,8 +6,8 @@ from hikka import loader, utils
 from pathlib import Path
 
 @loader.tds
-class SoundpadMod(loader.Module):
-    """🎤 Soundpad Лермана с кешем и заменой команды на голосовое"""
+class SoundpadFastMod(loader.Module):
+    """🎤 Soundpad Лермана с кешем, ускоренной отправкой и автоудалением команды"""
     strings = {"name": "Soundpad"}
 
     def __init__(self):
@@ -34,16 +34,22 @@ class SoundpadMod(loader.Module):
                         if resp.status != 200:
                             await message.edit(f"💀 Ошибка скачивания: {resp.status}")
                             return
-                        data = await resp.read()
-                        mp3_path.write_bytes(data)
+                        # Читаем поток напрямую в файл для ускорения
+                        with open(mp3_path, "wb") as f:
+                            while True:
+                                chunk = await resp.content.read(1024*16)
+                                if not chunk:
+                                    break
+                                f.write(chunk)
             except Exception as e:
                 await message.edit(f"💀 Ошибка: {e}")
                 return
 
         # 🔹 Отправка как голосовое сообщение
-        # Вместо удаления команды — редактируем её, превращая в голосовое
         try:
+            # Отправка сразу без задержек
             await message.client.send_file(message.chat_id, mp3_path, voice_note=True)
-            # message.delete() больше не нужно, команда остаётся
+            # 💀 Удаляем команду сразу после отправки
+            await message.delete()
         except Exception as e:
             await message.edit(f"💀 Ошибка при отправке: {e}")
