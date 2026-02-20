@@ -1,62 +1,62 @@
-# 🔥 Hikka/Heroku AutoReply модуль с дневным и ночным режимом
 from hikka import loader, utils
 from datetime import datetime, time as dtime
-import pytz  # pip install pytz
+import pytz
 
 @loader.tds
 class AutoReplyMod(loader.Module):
-    """💤 AutoReply Лермана: ночной, дневной и always режим"""
+    """💤 AutoReply Лермана"""
     strings = {"name": "AutoReply"}
 
     def __init__(self):
-        self.enabled = True       # обычный автоответчик
-        self.always_on = False    # постоянный ответчик
+        self.enabled = False
+        self.always_on = False
 
     async def autoreplycmd(self, message):
-        """Использование: .autoreply on/off/always"""
         args = utils.get_args(message)
         if not args:
-            await message.edit("😏 Лерман, укажи 'on', 'off' или 'always'")
+            await message.edit("😏 on / off / always")
             return
 
         mode = args[0].lower()
+
         if mode == "on":
             self.enabled = True
             self.always_on = False
-            await message.edit("✅ AutoReply включён (ночной режим, днём молчит) 😎")
+            await message.edit("🌙 Ночной режим включён (днём АБСОЛЮТНАЯ ТИШИНА 💀)")
         elif mode == "off":
             self.enabled = False
             self.always_on = False
-            await message.edit("💤 AutoReply выключен 😏")
+            await message.edit("💤 Выключено")
         elif mode == "always":
             self.enabled = True
             self.always_on = True
-            await message.edit("🔥 AutoReply включён всегда, вайб 24/7 😎💀")
+            await message.edit("🔥 Всегда отвечает (опасный вайб 💀)")
         else:
-            await message.edit("💀 Неправильный аргумент, используй 'on', 'off' или 'always'")
+            await message.edit("💀 on / off / always")
 
     async def watcher(self, message):
         if not self.enabled:
-            return  # полностью выключен
-
-        text = message.raw_text.lower()
-        mentions = ["@lermandev", "лерман"]
-
-        if not any(x in text for x in mentions):
             return
 
-        # GMT+6
+        text = message.raw_text.lower()
+        if not any(x in text for x in ["@lermandev", "лерман"]):
+            return
+
         tz = pytz.timezone("Asia/Almaty")
         now = datetime.now(tz).time()
 
-        # Сон: с 1:30 до 12:30
         sleep_start = dtime(1, 30)
         sleep_end = dtime(12, 30)
 
+        # 🔥 ALWAYS — отвечает ВСЕГДА
         if self.always_on:
-            # Режим 24/7 — отвечаем всегда
             await message.reply("😴 Возможно, я сплю, с ~12:30 GMT+6 возможно проснусь")
-        elif now >= sleep_start or now <= sleep_end:
-            # Ночной режим — отвечает только ночью
-            await message.reply("😴 Возможно, я сплю, с ~12:30 GMT+6 возможно проснусь")
-        # Иначе днём — молчит, вайб чистый 😏
+            return
+
+        # 💀 ON — ТОЛЬКО НОЧЬ
+        is_night = (now >= sleep_start) or (now <= sleep_end)
+
+        if not is_night:
+            return  # ← ВОТ ОНО. ДНЁМ НИЧЕГО НЕ ДЕЛАЕТ 😎
+
+        await message.reply("😴 Возможно, я сплю, с ~12:30 GMT+6 возможно проснусь")
