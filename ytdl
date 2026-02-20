@@ -2,12 +2,32 @@ __dependencies__ = []
 
 import os
 import asyncio
+import tempfile
+import random
+import string
 from hikka import loader, utils
 
 @loader.tds
 class YTDLPMod(loader.Module):
     """📥 Скачать видео через yt-dlp"""
     strings = {"name": "YTDLP"}
+
+    async def client_ready(self, client, db):
+        # Проверяем наличие yt-dlp
+        try:
+            process = await asyncio.create_subprocess_shell(
+                "which yt-dlp",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, _ = await process.communicate()
+            if not stdout:
+                raise Exception("yt-dlp not found")
+        except:
+            raise Exception("❌ yt-dlp не установлен!\nУстанови: pkg install yt-dlp")
+
+    def rand(self, size=6):
+        return ''.join(random.choices(string.ascii_lowercase + string.digits, k=size))
 
     async def ytdlcmd(self, message):
         """Использование: .ytdl <ссылка>"""
@@ -17,15 +37,18 @@ class YTDLPMod(loader.Module):
             return
 
         url = args.strip()
-        path = "/data/data/com.termux/files/home/downloads/video.mp4"
+        
+        # Создаем временный файл с уникальным именем
+        path = os.path.join(tempfile.gettempdir(), f"video_{self.rand(10)}.mp4")
 
         await message.edit("📥 Качаю... не дыши 🫁")
 
-        # Удаляем старый файл
+        # Удаляем старый файл если есть
         if os.path.exists(path):
             os.remove(path)
 
-        cmd = f'yt-dlp -f "mp4" -o "{path}" "{url}"'
+        # Используем более гибкий формат
+        cmd = f'yt-dlp -f "best[ext=mp4]/best" -o "{path}" "{url}"'
 
         process = await asyncio.create_subprocess_shell(
             cmd,
@@ -35,21 +58,30 @@ class YTDLPMod(loader.Module):
 
         try:
             stdout, stderr = await asyncio.wait_for(
-                process.communicate(), timeout=120
+                process.communicate(), timeout=300  # Увеличил таймаут до 5 минут
             )
         except asyncio.TimeoutError:
             process.kill()
             await message.edit("💀 Зависло (инет умер или сайт тупит)")
             return
 
-        if not os.path.exists(path):
-            await message.edit(
-                f"💀 Не скачалось\n\nstderr:\n{stderr.decode()[:300]}"
-            )
+        if not os.path.exists(path) or os.path.getsize(path) == 0:
+            error_text = stderr.decode()[:300] if stderr else "Неизвестная ошибка"
+            await message.edit(f"💀 Не скачалось\n\nОшибка:\n{error_text}")
             return
 
         try:
-            await message.client.send_file(message.chat_id, path)
+            await message.client.send_file(
+                message.chat_id, 
+                path,
+                caption=f"🎬 {url[:50]}..."  # Добавляем ссылку как подпись
+            )
             await message.delete()
         except Exception as e:
             await message.edit(f"💀 Ошибка отправки: {e}")
+        finally:
+            # Чистим за собой
+            try:
+                os.remove(path)
+            except:
+                pass
