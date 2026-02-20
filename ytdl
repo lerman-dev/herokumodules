@@ -1,0 +1,35 @@
+__dependencies__ = ["yt-dlp>=2024.1.0"]
+
+import os
+from hikka import loader, utils
+
+@loader.tds
+class YTDLPMod(loader.Module):
+    """📥 Скачать видео через yt-dlp"""
+    strings = {"name": "YTDLP"}
+
+    async def ytdlcmd(self, message):
+        """Использование: .ytdl <ссылка>"""
+        args = utils.get_args_raw(message)
+        if not args:
+            await message.edit("💀 Дай ссылку, унитаз 😏")
+            return
+
+        url = args.strip()
+        path = f"/data/data/com.termux/files/home/downloads/video.mp4"
+
+        await message.edit("📥 Качаю... держись 💀")
+
+        cmd = f'yt-dlp -f "mp4" -o "{path}" "{url}"'
+
+        proc = await utils.run_sync(os.system, cmd)
+
+        if not os.path.exists(path):
+            await message.edit("💀 Не скачалось, возможно сайт выпендривается")
+            return
+
+        try:
+            await message.client.send_file(message.chat_id, path)
+            await message.delete()
+        except Exception as e:
+            await message.edit(f"💀 Ошибка: {e}")
