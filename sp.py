@@ -1,4 +1,6 @@
 # 🎤 Soundpad модуль Лермана с кешем для Hikka/Heroku
+__dependencies__ = ["aiohttp>=3.8.1", "telethon>=2.25.0", "pytz>=2023.3"]
+
 import os
 import aiohttp
 from hikka import loader, utils
