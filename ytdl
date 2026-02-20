@@ -31,6 +31,51 @@ class YTDLPMod(loader.Module):
     def rand(self, size=6):
         return ''.join(random.choices(string.ascii_lowercase + string.digits, k=size))
 
+    async def _try_download(self, url, path, format_spec, message):
+        """Попытка скачать с определенным форматом"""
+        cmd = f'yt-dlp -f "{format_spec}" ' \
+              f'--no-playlist ' \
+              f'--check-formats ' \
+              f'--force-ipv4 ' \
+              f'--fragment-retries 15 ' \
+              f'--retries 15 ' \
+              f'--file-access-retries 15 ' \
+              f'--extractor-retries 15 ' \
+              f'--skip-unavailable-fragments ' \
+              f'--no-check-certificate ' \
+              f'--geo-bypass ' \
+              f'--user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" ' \
+              f'--add-header "Accept-Language: en-US,en;q=0.9" ' \
+              f'-o "{path}" "{url}"'
+
+        process = await asyncio.create_subprocess_shell(
+            cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT
+        )
+
+        output_lines = []
+        try:
+            while True:
+                line = await process.stdout.readline()
+                if not line:
+                    break
+                line = line.decode('utf-8', errors='ignore').strip()
+                if line:
+                    output_lines.append(line)
+                    
+                    # Показываем прогресс
+                    if len(output_lines) % 3 == 0:
+                        display = "\n".join(output_lines[-3:])
+                        if len(display) > 300:
+                            display = display[-297:] + "..."
+                        await message.edit(f"📥 Пробую формат {format_spec}...\n```\n{display}\n```")
+        except:
+            pass
+
+        await process.wait()
+        return output_lines
+
     @loader.command()
     async def ytdl(self, message):
         """<ссылка> - скачать видео"""
@@ -41,205 +86,76 @@ class YTDLPMod(loader.Module):
 
         url = args.strip()
         
-        # Создаем временный файл с уникальным именем
-        path = os.path.join(tempfile.gettempdir(), f"video_{self.rand(10)}.mp4")
-
         await message.edit("📥 Получаю информацию о видео...")
 
-        # Сначала получаем информацию о видео
-        info_cmd = f'yt-dlp --dump-json --no-playlist "{url}"'
-        info_process = await asyncio.create_subprocess_shell(
-            info_cmd,
+        # Сначала получаем список доступных форматов
+        list_cmd = f'yt-dlp --list-formats --no-playlist "{url}"'
+        list_process = await asyncio.create_subprocess_shell(
+            list_cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE
         )
         
         try:
             stdout, stderr = await asyncio.wait_for(
-                info_process.communicate(), timeout=30
+                list_process.communicate(), timeout=30
             )
+            formats_output = stdout.decode('utf-8', errors='ignore')
             
-            if stdout:
+            # Ищем WebM форматы (они часто работают лучше)
+            webm_formats = re.findall(r'^(\d+)\s+.*webm.*video only', formats_output, re.MULTILINE)
+            mp4_formats = re.findall(r'^(\d+)\s+.*mp4.*video only', formats_output, re.MULTILINE)
+            
+            await message.edit(f"📥 Найдено форматов: WebM: {len(webm_formats)}, MP4: {len(mp4_formats)}")
+        except:
+            webm_formats = []
+            mp4_formats = []
+
+        # Список форматов для попыток в порядке приоритета
+        format_attempts = [
+            "best[ext=webm]/best",  # Сначала WebM
+            "best[ext=mp4]/best",   # Потом MP4
+            "worst[ext=webm]/worst",  # Если не работает, пробуем худшее качество
+            "worst[ext=mp4]/worst",
+            "bestaudio/best",  # Если совсем плохо, качаем только аудио
+        ]
+        
+        # Добавляем конкретные ID форматов если нашли
+        if webm_formats:
+            format_attempts.insert(0, f"{webm_formats[0]}+bestaudio")
+        if mp4_formats:
+            format_attempts.append(f"{mp4_formats[0]}+bestaudio")
+
+        success = False
+        last_error = ""
+        
+        for i, format_spec in enumerate(format_attempts):
+            # Создаем новый путь для каждой попытки
+            current_path = os.path.join(tempfile.gettempdir(), f"video_{self.rand(10)}.mp4")
+            
+            await message.edit(f"📥 Попытка {i+1}/{len(format_attempts)}\nФормат: {format_spec}")
+            
+            output_lines = await self._try_download(url, current_path, format_spec, message)
+            
+            if os.path.exists(current_path) and os.path.getsize(current_path) > 1024:  # больше 1KB
+                success = True
+                path = current_path
+                break
+            else:
+                # Сохраняем ошибку
+                last_error = "\n".join(output_lines[-5:]) if output_lines else "Неизвестная ошибка"
+                # Удаляем пустой файл
                 try:
-                    info = json.loads(stdout)
-                    title = info.get('title', 'Неизвестно')
-                    duration = info.get('duration', 0)
-                    uploader = info.get('uploader', 'Неизвестно')
-                    
-                    # Форматируем длительность
-                    if duration:
-                        minutes = duration // 60
-                        seconds = duration % 60
-                        duration_str = f"{minutes}:{seconds:02d}"
-                    else:
-                        duration_str = "Неизвестно"
-                    
-                    await message.edit(
-                        f"📥 Начинаю загрузку...\n\n"
-                        f"📹 Название: {title[:50]}...\n"
-                        f"👤 Автор: {uploader}\n"
-                        f"⏱ Длительность: {duration_str}"
-                    )
+                    os.remove(current_path)
                 except:
                     pass
-        except:
-            pass
 
-        # Удаляем старый файл если есть
-        if os.path.exists(path):
-            os.remove(path)
-
-        cmd = f'yt-dlp -f "best[ext=mp4]/best" ' \
-              f'--no-playlist ' \
-              f'--check-formats ' \
-              f'--force-ipv4 ' \
-              f'--fragment-retries 10 ' \
-              f'--retries 10 ' \
-              f'--file-access-retries 10 ' \
-              f'--extractor-retries 10 ' \
-              f'--skip-unavailable-fragments ' \
-              f'--no-check-certificate ' \
-              f'--geo-bypass ' \
-              f'-o "{path}" "{url}"'
-
-        await message.edit("📥 Качаю... (использую проверку форматов)\n\nВывод команды:")
-
-        process = await asyncio.create_subprocess_shell(
-            cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT
-        )
-
-        output_lines = []
-        last_update_time = asyncio.get_event_loop().time()
-        error_count = 0
-        
-        try:
-            while True:
-                try:
-                    line = await asyncio.wait_for(process.stdout.readline(), 5.0)
-                    if not line:
-                        break
-                    
-                    line = line.decode('utf-8', errors='ignore').strip()
-                    if line:
-                        output_lines.append(line)
-                        
-                        # Считаем ошибки фрагментов
-                        if "404 Not Found" in line:
-                            error_count += 1
-                        
-                        # Оставляем последние 5 строк
-                        display_lines = output_lines[-5:]
-                        
-                        # Ищем прогресс загрузки
-                        progress_match = re.search(r'(\d+\.\d+)%', line)
-                        speed_match = re.search(r'at\s+([^\s]+)', line)
-                        eta_match = re.search(r'ETA\s+(\d+:\d+)', line)
-                        
-                        progress_text = ""
-                        if progress_match:
-                            progress_text += f"📊 {progress_match.group(1)}% "
-                        if speed_match:
-                            progress_text += f"⚡ {speed_match.group(1)} "
-                        if eta_match:
-                            progress_text += f"⏱ {eta_match.group(1)}"
-                        
-                        # Добавляем счетчик ошибок если есть
-                        if error_count > 0:
-                            progress_text += f" ⚠️ {error_count} ошибок"
-                        
-                        # Обновляем сообщение не чаще чем раз в 2 секунды
-                        current_time = asyncio.get_event_loop().time()
-                        if current_time - last_update_time > 2 or progress_match:
-                            display = "\n".join(display_lines)
-                            if len(display) > 500:
-                                display = "..." + display[-497:]
-                            
-                            # Добавляем подсказку если много ошибок
-                            if error_count > 5:
-                                await message.edit(
-                                    f"📥 Качаю... (много ошибок, но продолжаем)\n\n"
-                                    f"{progress_text}\n"
-                                    f"```\n{display}\n```\n"
-                                    f"🔄 Автоматически выбираю рабочий формат..."
-                                )
-                            else:
-                                await message.edit(
-                                    f"📥 Качаю...\n\n"
-                                    f"{progress_text}\n"
-                                    f"```\n{display}\n```"
-                                )
-                            last_update_time = current_time
-                            
-                except asyncio.TimeoutError:
-                    # Если нет вывода 5 секунд, просто показываем последние строки
-                    if output_lines:
-                        display = "\n".join(output_lines[-3:])
-                        await message.edit(
-                            f"📥 Качаю... (ожидание)\n```\n{display}\n```"
-                        )
-                    continue
-                    
-        except asyncio.CancelledError:
-            process.kill()
-            await message.edit("💀 Загрузка прервана")
-            return
-
-        # Ждем завершения процесса
-        try:
-            await asyncio.wait_for(process.wait(), timeout=10)
-        except asyncio.TimeoutError:
-            process.kill()
-            await message.edit("💀 Процесс завис")
-            return
-
-        if not os.path.exists(path) or os.path.getsize(path) == 0:
-            error_text = "\n".join(output_lines[-10:]) if output_lines else "Неизвестная ошибка"
-            
-            # Если были ошибки 404, предлагаем альтернативный формат
-            if "404" in error_text:
-                await message.edit(
-                    f"💀 Не скачалось из-за ошибок фрагментов\n\n"
-                    f"Пробую другой формат...\n"
-                    f"Последние строки:\n```\n{error_text[:500]}\n```"
-                )
-                
-                # Пробуем скачать в другом формате (без HLS)
-                alt_path = os.path.join(tempfile.gettempdir(), f"video_alt_{self.rand(10)}.mp4")
-                alt_cmd = f'yt-dlp -f "best[protocol!*=m3u8]/best" --no-playlist --check-formats -o "{alt_path}" "{url}"'
-                
-                alt_process = await asyncio.create_subprocess_shell(
-                    alt_cmd,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.STDOUT
-                )
-                
-                await alt_process.wait()
-                
-                if os.path.exists(alt_path) and os.path.getsize(alt_path) > 0:
-                    try:
-                        file_size = os.path.getsize(alt_path) / (1024 * 1024)
-                        await message.client.send_file(
-                            message.chat_id, 
-                            alt_path,
-                            caption=f"🎬 {url[:50]}... (альтернативный формат)\n📦 {file_size:.1f} МБ"
-                        )
-                        await message.delete()
-                        os.remove(alt_path)
-                        return
-                    except:
-                        pass
-                        
-                await message.edit(f"💀 Не скачалось и в альтернативном формате\n\n{error_text[:1000]}")
-                return
-            else:
-                await message.edit(f"💀 Не скачалось\n\nПоследние строки вывода:\n```\n{error_text[:1000]}\n```")
+        if not success:
+            await message.edit(f"💀 Все форматы не работают\n\nПоследняя ошибка:\n```\n{last_error[:500]}\n```")
             return
 
         try:
-            # Получаем размер файла
-            file_size = os.path.getsize(path) / (1024 * 1024)  # в МБ
+            file_size = os.path.getsize(path) / (1024 * 1024)
             
             await message.edit(f"✅ Загружено! ({file_size:.1f} МБ)\n📤 Отправляю...")
             
@@ -250,9 +166,75 @@ class YTDLPMod(loader.Module):
             )
             await message.delete()
         except Exception as e:
-            await message.edit(f"💀 Ошибка отправки: {e}\n\nПоследние строки вывода:\n```\n{output_lines[-5:]}```")
+            await message.edit(f"💀 Ошибка отправки: {e}")
         finally:
-            # Чистим за собой
+            try:
+                os.remove(path)
+            except:
+                pass
+
+    @loader.command()
+    async def ytwebm(self, message):
+        """<ссылка> - скачать видео в WebM формате"""
+        args = utils.get_args_raw(message)
+        if not args:
+            await message.edit("💀 Дай ссылку, унитаз 😏")
+            return
+
+        url = args.strip()
+        path = os.path.join(tempfile.gettempdir(), f"video_{self.rand(10)}.webm")
+
+        await message.edit("📥 Качаю в WebM формате...")
+
+        # Специальная команда для WebM с минимальными настройками
+        cmd = f'yt-dlp -f "bestvideo[ext=webm]+bestaudio[ext=webm]/best[ext=webm]/best" ' \
+              f'--no-playlist ' \
+              f'--force-ipv4 ' \
+              f'--fragment-retries 20 ' \
+              f'--retries 20 ' \
+              f'--no-check-certificate ' \
+              f'--geo-bypass ' \
+              f'--user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" ' \
+              f'-o "{path}" "{url}"'
+
+        process = await asyncio.create_subprocess_shell(
+            cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT
+        )
+
+        output_lines = []
+        try:
+            while True:
+                line = await process.stdout.readline()
+                if not line:
+                    break
+                line = line.decode('utf-8', errors='ignore').strip()
+                if line:
+                    output_lines.append(line)
+                    if len(output_lines) % 3 == 0:
+                        display = "\n".join(output_lines[-3:])
+                        await message.edit(f"📥 Качаю WebM...\n```\n{display}\n```")
+        except:
+            pass
+
+        await process.wait()
+
+        if not os.path.exists(path) or os.path.getsize(path) == 0:
+            await message.edit(f"💀 Не скачалось\n\n{output_lines[-3:] if output_lines else 'Ошибка'}")
+            return
+
+        try:
+            file_size = os.path.getsize(path) / (1024 * 1024)
+            await message.client.send_file(
+                message.chat_id, 
+                path,
+                caption=f"🎬 {url[:50]}... (WebM)\n📦 {file_size:.1f} МБ"
+            )
+            await message.delete()
+        except Exception as e:
+            await message.edit(f"💀 Ошибка: {e}")
+        finally:
             try:
                 os.remove(path)
             except:
@@ -267,70 +249,21 @@ class YTDLPMod(loader.Module):
             return
 
         url = args.strip()
-        
-        # Создаем временный файл с уникальным именем
         path = os.path.join(tempfile.gettempdir(), f"audio_{self.rand(10)}.mp3")
 
-        await message.edit("🎵 Получаю информацию...")
+        await message.edit("🎵 Качаю аудио...")
 
-        # Получаем информацию о видео
-        info_cmd = f'yt-dlp --dump-json --no-playlist "{url}"'
-        info_process = await asyncio.create_subprocess_shell(
-            info_cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
-        
-        try:
-            stdout, stderr = await asyncio.wait_for(
-                info_process.communicate(), timeout=30
-            )
-            
-            if stdout:
-                try:
-                    info = json.loads(stdout)
-                    title = info.get('title', 'Неизвестно')
-                    duration = info.get('duration', 0)
-                    uploader = info.get('uploader', 'Неизвестно')
-                    
-                    if duration:
-                        minutes = duration // 60
-                        seconds = duration % 60
-                        duration_str = f"{minutes}:{seconds:02d}"
-                    else:
-                        duration_str = "Неизвестно"
-                    
-                    await message.edit(
-                        f"🎵 Начинаю загрузку аудио...\n\n"
-                        f"📹 Название: {title[:50]}...\n"
-                        f"👤 Автор: {uploader}\n"
-                        f"⏱ Длительность: {duration_str}"
-                    )
-                except:
-                    pass
-        except:
-            pass
-
-        # Удаляем старый файл если есть
-        if os.path.exists(path):
-            os.remove(path)
-
-        # Команда для скачивания аудио с --check-formats
+        # Упрощенная команда для аудио
         cmd = f'yt-dlp -x --audio-format mp3 ' \
               f'--audio-quality 0 ' \
               f'--no-playlist ' \
-              f'--check-formats ' \
               f'--force-ipv4 ' \
-              f'--fragment-retries 10 ' \
-              f'--retries 10 ' \
-              f'--file-access-retries 10 ' \
-              f'--extractor-retries 10 ' \
-              f'--skip-unavailable-fragments ' \
+              f'--fragment-retries 15 ' \
+              f'--retries 15 ' \
               f'--no-check-certificate ' \
               f'--geo-bypass ' \
+              f'--user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" ' \
               f'-o "{path}" "{url}"'
-
-        await message.edit("🎵 Качаю аудио...\n\nВывод команды:")
 
         process = await asyncio.create_subprocess_shell(
             cmd,
@@ -339,56 +272,28 @@ class YTDLPMod(loader.Module):
         )
 
         output_lines = []
-        last_update_time = asyncio.get_event_loop().time()
-        
         try:
             while True:
-                try:
-                    line = await asyncio.wait_for(process.stdout.readline(), 5.0)
-                    if not line:
-                        break
-                    
-                    line = line.decode('utf-8', errors='ignore').strip()
-                    if line:
-                        output_lines.append(line)
-                        
-                        # Показываем прогресс
-                        display_lines = output_lines[-3:]
-                        
-                        # Ищем прогресс
-                        progress_match = re.search(r'(\d+\.\d+)%', line)
-                        
-                        current_time = asyncio.get_event_loop().time()
-                        if current_time - last_update_time > 2 or progress_match:
-                            display = "\n".join(display_lines)
-                            if len(display) > 500:
-                                display = "..." + display[-497:]
-                            
-                            await message.edit(
-                                f"🎵 Качаю аудио...\n"
-                                f"```\n{display}\n```"
-                            )
-                            last_update_time = current_time
-                            
-                except asyncio.TimeoutError:
-                    continue
-                    
-        except asyncio.CancelledError:
-            process.kill()
-            await message.edit("💀 Загрузка прервана")
-            return
+                line = await process.stdout.readline()
+                if not line:
+                    break
+                line = line.decode('utf-8', errors='ignore').strip()
+                if line:
+                    output_lines.append(line)
+                    if len(output_lines) % 3 == 0:
+                        display = "\n".join(output_lines[-3:])
+                        await message.edit(f"🎵 Качаю аудио...\n```\n{display}\n```")
+        except:
+            pass
 
         await process.wait()
 
         if not os.path.exists(path) or os.path.getsize(path) == 0:
-            error_text = "\n".join(output_lines[-5:]) if output_lines else "Неизвестная ошибка"
-            await message.edit(f"💀 Не скачалось\n\n{error_text}")
+            await message.edit(f"💀 Не скачалось\n\n{output_lines[-3:] if output_lines else 'Ошибка'}")
             return
 
         try:
             file_size = os.path.getsize(path) / (1024 * 1024)
-            await message.edit(f"✅ Аудио загружено! ({file_size:.1f} МБ)\n📤 Отправляю...")
-            
             await message.client.send_file(
                 message.chat_id, 
                 path,
@@ -396,7 +301,7 @@ class YTDLPMod(loader.Module):
             )
             await message.delete()
         except Exception as e:
-            await message.edit(f"💀 Ошибка отправки: {e}")
+            await message.edit(f"💀 Ошибка: {e}")
         finally:
             try:
                 os.remove(path)
