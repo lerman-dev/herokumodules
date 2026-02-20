@@ -1,8 +1,11 @@
+__dependencies__ = []
+
 import os
 import asyncio
 import tempfile
 import random
 import string
+import re
 from hikka import loader, utils
 
 @loader.tds
@@ -39,46 +42,223 @@ class YTDLPMod(loader.Module):
         # Создаем временный файл с уникальным именем
         path = os.path.join(tempfile.gettempdir(), f"video_{self.rand(10)}.mp4")
 
-        await message.edit("📥 Качаю... не дыши 🫁")
+        await message.edit("📥 Получаю информацию о видео...")
+
+        # Сначала получаем информацию о видео
+        info_cmd = f'yt-dlp --dump-json --no-playlist "{url}"'
+        info_process = await asyncio.create_subprocess_shell(
+            info_cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        
+        try:
+            stdout, stderr = await asyncio.wait_for(
+                info_process.communicate(), timeout=30
+            )
+            
+            if stdout:
+                import json
+                try:
+                    info = json.loads(stdout)
+                    title = info.get('title', 'Неизвестно')
+                    duration = info.get('duration', 0)
+                    uploader = info.get('uploader', 'Неизвестно')
+                    
+                    # Форматируем длительность
+                    if duration:
+                        minutes = duration // 60
+                        seconds = duration % 60
+                        duration_str = f"{minutes}:{seconds:02d}"
+                    else:
+                        duration_str = "Неизвестно"
+                    
+                    await message.edit(
+                        f"📥 Начинаю загрузку...\n\n"
+                        f"📹 Название: {title[:50]}...\n"
+                        f"👤 Автор: {uploader}\n"
+                        f"⏱ Длительность: {duration_str}"
+                    )
+                except:
+                    pass
+        except:
+            pass
 
         # Удаляем старый файл если есть
         if os.path.exists(path):
             os.remove(path)
 
         # Используем более гибкий формат
-        cmd = f'yt-dlp -f "best[ext=mp4]/best" -o "{path}" "{url}"'
+        cmd = f'yt-dlp -f "best[ext=mp4]/best" -o "{path}" "{url}" --no-playlist'
+
+        await message.edit("📥 Качаю... не дыши 🫁\n\nВывод команды:")
 
         process = await asyncio.create_subprocess_shell(
             cmd,
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
+            stderr=asyncio.subprocess.STDOUT  # Объединяем stdout и stderr
         )
 
+        output_lines = []
+        last_update_time = asyncio.get_event_loop().time()
+        
         try:
-            stdout, stderr = await asyncio.wait_for(
-                process.communicate(), timeout=300  # Увеличил таймаут до 5 минут
-            )
+            while True:
+                try:
+                    line = await asyncio.wait_for(process.stdout.readline(), 5.0)
+                    if not line:
+                        break
+                    
+                    line = line.decode('utf-8', errors='ignore').strip()
+                    if line:
+                        output_lines.append(line)
+                        
+                        # Оставляем последние 5 строк
+                        display_lines = output_lines[-5:]
+                        
+                        # Ищем прогресс загрузки
+                        progress_match = re.search(r'(\d+\.\d+)%', line)
+                        speed_match = re.search(r'at\s+([^\s]+)', line)
+                        eta_match = re.search(r'ETA\s+(\d+:\d+)', line)
+                        
+                        progress_text = ""
+                        if progress_match:
+                            progress_text += f"📊 {progress_match.group(1)}% "
+                        if speed_match:
+                            progress_text += f"⚡ {speed_match.group(1)} "
+                        if eta_match:
+                            progress_text += f"⏱ {eta_match.group(1)}"
+                        
+                        # Обновляем сообщение не чаще чем раз в 2 секунды
+                        current_time = asyncio.get_event_loop().time()
+                        if current_time - last_update_time > 2 or progress_match:
+                            display = "\n".join(display_lines)
+                            if len(display) > 500:
+                                display = "..." + display[-497:]
+                            
+                            await message.edit(
+                                f"📥 Качаю...\n\n"
+                                f"{progress_text}\n"
+                                f"```\n{display}\n```"
+                            )
+                            last_update_time = current_time
+                            
+                except asyncio.TimeoutError:
+                    # Если нет вывода 5 секунд, просто показываем последние строки
+                    if output_lines:
+                        display = "\n".join(output_lines[-3:])
+                        await message.edit(
+                            f"📥 Качаю... (ожидание)\n```\n{display}\n```"
+                        )
+                    continue
+                    
+        except asyncio.CancelledError:
+            process.kill()
+            await message.edit("💀 Загрузка прервана")
+            return
+
+        # Ждем завершения процесса
+        try:
+            await asyncio.wait_for(process.wait(), timeout=10)
         except asyncio.TimeoutError:
             process.kill()
-            await message.edit("💀 Зависло (инет умер или сайт тупит)")
+            await message.edit("💀 Процесс завис")
             return
 
         if not os.path.exists(path) or os.path.getsize(path) == 0:
-            error_text = stderr.decode()[:300] if stderr else "Неизвестная ошибка"
-            await message.edit(f"💀 Не скачалось\n\nОшибка:\n{error_text}")
+            error_text = "\n".join(output_lines[-10:]) if output_lines else "Неизвестная ошибка"
+            await message.edit(f"💀 Не скачалось\n\nПоследние строки вывода:\n```\n{error_text[:1000]}\n```")
             return
 
         try:
+            # Получаем размер файла
+            file_size = os.path.getsize(path) / (1024 * 1024)  # в МБ
+            
+            await message.edit(f"✅ Загружено! ({file_size:.1f} МБ)\n📤 Отправляю...")
+            
             await message.client.send_file(
                 message.chat_id, 
                 path,
-                caption=f"🎬 {url[:50]}..."  # Добавляем ссылку как подпись
+                caption=f"🎬 {url[:50]}...\n📦 {file_size:.1f} МБ"
+            )
+            await message.delete()
+        except Exception as e:
+            await message.edit(f"💀 Ошибка отправки: {e}\n\nПоследние строки вывода:\n```\n{output_lines[-5:]}```")
+        finally:
+            # Чистим за собой
+            try:
+                os.remove(path)
+            except:
+                pass
+
+    async def ytmp3cmd(self, message):
+        """Скачать только аудио в MP3"""
+        args = utils.get_args_raw(message)
+        if not args:
+            await message.edit("💀 Дай ссылку, унитаз 😏")
+            return
+
+        url = args.strip()
+        
+        # Создаем временный файл с уникальным именем
+        path = os.path.join(tempfile.gettempdir(), f"audio_{self.rand(10)}.mp3")
+
+        await message.edit("🎵 Качаю аудио...")
+
+        # Удаляем старый файл если есть
+        if os.path.exists(path):
+            os.remove(path)
+
+        # Команда для скачивания аудио
+        cmd = f'yt-dlp -x --audio-format mp3 -o "{path}" "{url}" --no-playlist'
+
+        process = await asyncio.create_subprocess_shell(
+            cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT
+        )
+
+        output_lines = []
+        
+        try:
+            while True:
+                line = await process.stdout.readline()
+                if not line:
+                    break
+                line = line.decode('utf-8', errors='ignore').strip()
+                if line:
+                    output_lines.append(line)
+                    
+                    # Показываем прогресс
+                    if len(output_lines) % 3 == 0:  # Обновляем каждые 3 строки
+                        display = "\n".join(output_lines[-3:])
+                        await message.edit(f"🎵 Качаю аудио...\n```\n{display}\n```")
+                        
+        except Exception as e:
+            process.kill()
+            await message.edit(f"💀 Ошибка: {e}")
+            return
+
+        await process.wait()
+
+        if not os.path.exists(path) or os.path.getsize(path) == 0:
+            error_text = "\n".join(output_lines[-5:]) if output_lines else "Неизвестная ошибка"
+            await message.edit(f"💀 Не скачалось\n\n{error_text}")
+            return
+
+        try:
+            file_size = os.path.getsize(path) / (1024 * 1024)
+            await message.edit(f"✅ Аудио загружено! ({file_size:.1f} МБ)\n📤 Отправляю...")
+            
+            await message.client.send_file(
+                message.chat_id, 
+                path,
+                caption=f"🎵 {url[:50]}...\n📦 {file_size:.1f} МБ"
             )
             await message.delete()
         except Exception as e:
             await message.edit(f"💀 Ошибка отправки: {e}")
         finally:
-            # Чистим за собой
             try:
                 os.remove(path)
             except:
