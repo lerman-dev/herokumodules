@@ -1,42 +1,59 @@
-__dependencies__ = ["yt-dlp>=2024.1.0"]
+# meta developer: @lermandev
 
 import os
+import yt_dlp
 from hikka import loader, utils
 
-@loader.tds
-class YTDLPMod(loader.Module):
-    """📥 Скачать видео нормально (без 💀)"""
-    strings = {"name": "YTDLP"}
+class SPMod(loader.Module):
+    """Скачивание музыки быстро и без боли"""
 
-    async def ytdlcmd(self, message):
-        url = utils.get_args_raw(message)
-        if not url:
-            await message.edit("💀 Дай ссылку, унитаз 😏")
+    strings = {"name": "SP"}
+
+    def __init__(self):
+        self.cache_dir = "sp_cache"
+
+    async def client_ready(self, client, db):
+        if not os.path.exists(self.cache_dir):
+            os.makedirs(self.cache_dir)
+
+    async def spcmd(self, message):
+        """<url> - скачать и отправить аудио"""
+
+        args = utils.get_args_raw(message)
+        if not args:
+            await utils.answer(message, "💀 Где ссылка, гений?")
             return
 
-        path = "/data/data/com.termux/files/home/downloads/%(title)s.%(ext)s"
+        url = args.strip()
 
-        await message.edit("📥 Качаю... ща будет магия 💀")
-
-        cmd = f'yt-dlp -f "bestvideo+bestaudio/best" -o "{path}" "{url}"'
-        os.system(cmd)
-
-        # 🔥 ищем последний скачанный файл
-        folder = "/data/data/com.termux/files/home/downloads"
-        files = sorted(
-            [os.path.join(folder, f) for f in os.listdir(folder)],
-            key=os.path.getmtime,
-            reverse=True
-        )
-
-        if not files:
-            await message.edit("💀 Вообще ничего не скачалось, сайт реально выпендривается")
-            return
-
-        file_path = files[0]
+        await message.delete()  # удаляем сразу (чтобы не палиться 😎)
 
         try:
-            await message.client.send_file(message.chat_id, file_path)
-            await message.delete()
+            file_path = self.download_audio(url)
+            await message.respond(file=file_path, voice_note=True)
+
         except Exception as e:
-            await message.edit(f"💀 Ошибка отправки: {e}")
+            await message.respond(f"💀 Ошибка: {e}")
+
+    def download_audio(self, url):
+        ydl_opts = {
+            'format': 'bestaudio[ext=m4a]/bestaudio/best',
+            'outtmpl': f'{self.cache_dir}/%(title)s.%(ext)s',
+            'noplaylist': True,
+            'quiet': True,
+        }
+
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+
+            filename = ydl.prepare_filename(info)
+
+            # 🔥 ЕСЛИ УЖЕ СКАЧАНО — НЕ КАЧАЕМ
+            if os.path.exists(filename):
+                return filename
+
+            # скачиваем если нет
+            info = ydl.extract_info(url, download=True)
+            filename = ydl.prepare_filename(info)
+
+        return filename
