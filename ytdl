@@ -89,9 +89,10 @@ class YTDLPMod(loader.Module):
         if os.path.exists(path):
             os.remove(path)
 
-        # ИСПРАВЛЕННАЯ КОМАНДА с параметрами для обхода ошибок
+        # ИСПРАВЛЕННАЯ КОМАНДА с --check-formats (фикс из issue #9176)
         cmd = f'yt-dlp -f "best[ext=mp4]/best" ' \
               f'--no-playlist ' \
+              f'--check-formats ' \  # 👈 КЛЮЧЕВОЙ ФИКС - проверяет форматы и выбирает рабочий
               f'--force-ipv4 ' \
               f'--fragment-retries 10 ' \
               f'--retries 10 ' \
@@ -102,7 +103,7 @@ class YTDLPMod(loader.Module):
               f'--geo-bypass ' \
               f'-o "{path}" "{url}"'
 
-        await message.edit("📥 Качаю... (использую улучшенные настройки)\n\nВывод команды:")
+        await message.edit("📥 Качаю... (использую проверку форматов)\n\nВывод команды:")
 
         process = await asyncio.create_subprocess_shell(
             cmd,
@@ -156,11 +157,20 @@ class YTDLPMod(loader.Module):
                             if len(display) > 500:
                                 display = "..." + display[-497:]
                             
-                            await message.edit(
-                                f"📥 Качаю...\n\n"
-                                f"{progress_text}\n"
-                                f"```\n{display}\n```"
-                            )
+                            # Добавляем подсказку если много ошибок
+                            if error_count > 5:
+                                await message.edit(
+                                    f"📥 Качаю... (много ошибок, но продолжаем)\n\n"
+                                    f"{progress_text}\n"
+                                    f"```\n{display}\n```\n"
+                                    f"🔄 Автоматически выбираю рабочий формат..."
+                                )
+                            else:
+                                await message.edit(
+                                    f"📥 Качаю...\n\n"
+                                    f"{progress_text}\n"
+                                    f"```\n{display}\n```"
+                                )
                             last_update_time = current_time
                             
                 except asyncio.TimeoutError:
@@ -187,7 +197,45 @@ class YTDLPMod(loader.Module):
 
         if not os.path.exists(path) or os.path.getsize(path) == 0:
             error_text = "\n".join(output_lines[-10:]) if output_lines else "Неизвестная ошибка"
-            await message.edit(f"💀 Не скачалось\n\nПоследние строки вывода:\n```\n{error_text[:1000]}\n```")
+            
+            # Если были ошибки 404, предлагаем альтернативный формат
+            if "404" in error_text:
+                await message.edit(
+                    f"💀 Не скачалось из-за ошибок фрагментов\n\n"
+                    f"Пробую другой формат...\n"
+                    f"Последние строки:\n```\n{error_text[:500]}\n```"
+                )
+                
+                # Пробуем скачать в другом формате (без HLS)
+                alt_path = os.path.join(tempfile.gettempdir(), f"video_alt_{self.rand(10)}.mp4")
+                alt_cmd = f'yt-dlp -f "best[protocol!*=m3u8]/best" --no-playlist --check-formats -o "{alt_path}" "{url}"'
+                
+                alt_process = await asyncio.create_subprocess_shell(
+                    alt_cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.STDOUT
+                )
+                
+                await alt_process.wait()
+                
+                if os.path.exists(alt_path) and os.path.getsize(alt_path) > 0:
+                    try:
+                        file_size = os.path.getsize(alt_path) / (1024 * 1024)
+                        await message.client.send_file(
+                            message.chat_id, 
+                            alt_path,
+                            caption=f"🎬 {url[:50]}... (альтернативный формат)\n📦 {file_size:.1f} МБ"
+                        )
+                        await message.delete()
+                        os.remove(alt_path)
+                        return
+                    except:
+                        pass
+                        
+                await message.edit(f"💀 Не скачалось и в альтернативном формате\n\n{error_text[:1000]}")
+                return
+            else:
+                await message.edit(f"💀 Не скачалось\n\nПоследние строки вывода:\n```\n{error_text[:1000]}\n```")
             return
 
         try:
@@ -268,10 +316,11 @@ class YTDLPMod(loader.Module):
         if os.path.exists(path):
             os.remove(path)
 
-        # Команда для скачивания аудио с улучшенными параметрами
+        # Команда для скачивания аудио с --check-formats
         cmd = f'yt-dlp -x --audio-format mp3 ' \
               f'--audio-quality 0 ' \
               f'--no-playlist ' \
+              f'--check-formats ' \  # 👈 И здесь тоже добавляем
               f'--force-ipv4 ' \
               f'--fragment-retries 10 ' \
               f'--retries 10 ' \
