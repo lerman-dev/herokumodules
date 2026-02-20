@@ -1,29 +1,30 @@
+# 🎤 Soundpad модуль Лермана с кешем для Hikka/Heroku
 import os
 import aiohttp
 from hikka import loader, utils
-from telethon.tl.types import InputMediaUploadedAudio
 from pathlib import Path
 
 @loader.tds
 class SoundpadMod(loader.Module):
-    """🎤 Soundpad с кешем Лермана"""
+    """🎵 Soundpad с кешированием Лермана"""
     strings = {"name": "Soundpad"}
-    
+
     def __init__(self):
+        # Директория для кеша
         self.cache_dir = Path(os.getenv("HOME") + "/downloads/sp_cache")
-        self.cache_dir.mkdir(parents=True, exist_ok=True)  # создаём папку если нет
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
 
     async def spcmd(self, message):
-        """Использование: .sp <трек>"""
+        """Использование: .sp <название трека>"""
         args = utils.get_args(message)
         if not args:
-            await message.edit("💀 Укажи название трека")
+            await message.edit("💀 Укажи название трека, унитаз 😏")
             return
 
         track_name = args[0]
         mp3_path = self.cache_dir / f"{track_name}.mp3"
 
-        # 🔹 Если файл есть — не скачиваем
+        # 🔹 Если трек ещё не скачан — качаем
         if not mp3_path.exists():
             url = f"https://lerman.vercel.app/{track_name}.mp3"
             try:
@@ -38,6 +39,9 @@ class SoundpadMod(loader.Module):
                 await message.edit(f"💀 Ошибка: {e}")
                 return
 
-        # 🔹 Отправка в чат без удаления
-        await message.client.send_file(message.chat_id, mp3_path, voice_note=True)
-        await message.delete()  # чтобы чат не засорять командой
+        # 🔹 Отправка в чат как голосовое сообщение
+        try:
+            await message.client.send_file(message.chat_id, mp3_path, voice_note=True)
+            await message.delete()  # чтобы чат не засорять командой
+        except Exception as e:
+            await message.edit(f"💀 Ошибка при отправке: {e}")
