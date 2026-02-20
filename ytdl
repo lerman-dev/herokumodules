@@ -89,10 +89,9 @@ class YTDLPMod(loader.Module):
         if os.path.exists(path):
             os.remove(path)
 
-        # ИСПРАВЛЕННАЯ КОМАНДА с --check-formats (фикс из issue #9176)
         cmd = f'yt-dlp -f "best[ext=mp4]/best" ' \
               f'--no-playlist ' \
-              f'--check-formats ' \  # 👈 КЛЮЧЕВОЙ ФИКС - проверяет форматы и выбирает рабочий
+              f'--check-formats ' \
               f'--force-ipv4 ' \
               f'--fragment-retries 10 ' \
               f'--retries 10 ' \
