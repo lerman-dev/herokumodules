@@ -54,7 +54,7 @@ class AutoReplyMod(loader.Module):
             return
 
         # 💀 ON — ТОЛЬКО НОЧЬ
-        is_night = (now >= sleep_start) or (now <= sleep_end)
+        is_night = sleep_start <= now <= sleep_end
 
         if not is_night:
             return  # ← ВОТ ОНО. ДНЁМ НИЧЕГО НЕ ДЕЛАЕТ 😎
