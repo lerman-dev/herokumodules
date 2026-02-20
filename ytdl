@@ -319,7 +319,7 @@ class YTDLPMod(loader.Module):
         cmd = f'yt-dlp -x --audio-format mp3 ' \
               f'--audio-quality 0 ' \
               f'--no-playlist ' \
-              f'--check-formats ' \  # 👈 И здесь тоже добавляем
+              f'--check-formats ' \
               f'--force-ipv4 ' \
               f'--fragment-retries 10 ' \
               f'--retries 10 ' \
