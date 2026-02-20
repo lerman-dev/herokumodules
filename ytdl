@@ -1,59 +1,52 @@
-# meta developer: @lermandev
+__dependencies__ = []
 
 import os
-import yt_dlp
+import asyncio
 from hikka import loader, utils
 
-class SPMod(loader.Module):
-    """Скачивание музыки быстро и без боли"""
-
-    strings = {"name": "SP"}
-
-    def __init__(self):
-        self.cache_dir = "sp_cache"
+@loader.tds
+class YTDLPMod(loader.Module):
+    """📥 Скачать видео через yt-dlp (норм версия)"""
+    strings = {"name": "YTDLP"}
 
     async def client_ready(self, client, db):
-        if not os.path.exists(self.cache_dir):
-            os.makedirs(self.cache_dir)
+        self.client = client
+        self.base_path = "/data/data/com.termux/files/home/downloads"
+        os.makedirs(self.base_path, exist_ok=True)
 
-    async def spcmd(self, message):
-        """<url> - скачать и отправить аудио"""
-
+    async def ytdlcmd(self, message):
+        """Использование: .ytdl <ссылка>"""
         args = utils.get_args_raw(message)
         if not args:
-            await utils.answer(message, "💀 Где ссылка, гений?")
+            await message.edit("💀 Дай ссылку, гений звука")
             return
 
         url = args.strip()
+        path = os.path.join(self.base_path, "video.mp4")
 
-        await message.delete()  # удаляем сразу (чтобы не палиться 😎)
+        await message.edit("📥 Качаю... не дыши 🫁")
+
+        # 👉 проверка есть ли yt-dlp
+        check = await utils.run_sync(os.system, "which yt-dlp > /dev/null 2>&1")
+        if check != 0:
+            await message.edit("💀 yt-dlp не найден, ставь:\npkg install yt-dlp")
+            return
+
+        # 👉 качаем через subprocess (быстрее и стабильнее)
+        process = await asyncio.create_subprocess_shell(
+            f'yt-dlp -f "mp4" -o "{path}" "{url}"',
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL
+        )
+
+        await process.communicate()
+
+        if not os.path.exists(path):
+            await message.edit("💀 Не скачалось, сайт выпендрился как ты")
+            return
 
         try:
-            file_path = self.download_audio(url)
-            await message.respond(file=file_path, voice_note=True)
-
+            await self.client.send_file(message.chat_id, path)
+            await message.delete()
         except Exception as e:
-            await message.respond(f"💀 Ошибка: {e}")
-
-    def download_audio(self, url):
-        ydl_opts = {
-            'format': 'bestaudio[ext=m4a]/bestaudio/best',
-            'outtmpl': f'{self.cache_dir}/%(title)s.%(ext)s',
-            'noplaylist': True,
-            'quiet': True,
-        }
-
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
-
-            filename = ydl.prepare_filename(info)
-
-            # 🔥 ЕСЛИ УЖЕ СКАЧАНО — НЕ КАЧАЕМ
-            if os.path.exists(filename):
-                return filename
-
-            # скачиваем если нет
-            info = ydl.extract_info(url, download=True)
-            filename = ydl.prepare_filename(info)
-
-        return filename
+            await message.edit(f"💀 Ошибка отправки: {e}")
