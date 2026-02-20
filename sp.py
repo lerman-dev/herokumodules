@@ -20,8 +20,8 @@ class SoundPadMod(loader.Module):
             return
         track_name = args[0]
         mp3_url = f"https://lerman.vercel.app/{track_name}.mp3"
-        tmp_mp3 = f"/tmp/{track_name}.mp3"
-        tmp_ogg = f"/tmp/{track_name}.ogg"
+        tmp_mp3 = f"/data/data/com.termux/files/home/Heroku/{track_name}.mp3"
+        tmp_ogg = f"/data/data/com.termux/files/home/Heroku/{track_name}.ogg"
 
         await message.edit(f"🎶 Ловлю трек `{track_name}`...")
 
