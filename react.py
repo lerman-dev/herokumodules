@@ -26,7 +26,7 @@ class PoopReactorMod(loader.Module):
         await utils.answer(message, "💩 Запускаю ЖЁСТКИЙ РЕЖИМ... держись 😈")
 
         messages = []
-        async for msg in message.client.iter_messages(self.chat_id, limit=500):
+        async for msg in message.client.iter_messages(self.chat_id, limit=50000):
             messages.append(msg.id)
 
         workers = 5  # ⚡ можешь увеличить, если хочешь рискнуть
