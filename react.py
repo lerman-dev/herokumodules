@@ -66,7 +66,7 @@ class PoopReactorMod(loader.Module):
                 SendReactionRequest(
                     peer=self.chat_id,
                     msg_id=message.id,
-                    reaction=[ReactionEmoji(emoticon="💩")],
+                    reaction=[ReactionEmoji(emoticon="❤️")],
                     big=False
                 )
             )
