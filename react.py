@@ -56,7 +56,7 @@ class PoopReactorMod(loader.Module):
                 )
             )
         except:
-            pass            )
+            pass
             )
         except:
             pass
