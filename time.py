@@ -1,50 +1,44 @@
 from .. import loader, utils
 import asyncio
 from datetime import datetime, timedelta
-from telethon.tl import functions
+from telethon.tl.functions.account import UpdateProfileRequest
 
 @loader.tds
-class LermanTimeMod(loader.Module):
-    """Меняет имя на Lerman | время (GMT+6) по команде"""
+class LermanTime(loader.Module):
+    """Lerman | время в нике"""
 
     strings = {"name": "LermanTime"}
-    
+
     async def client_ready(self, client, db):
-        self._client = client
-        self._running = False  # не стартуем сразу
-        self._task = None
+        self.client = client
+        self.running = False
 
     async def lermancmd(self, message):
-        """Команда: .lerman start/stop"""
-        args = utils.get_args_raw(message).lower()
-        
+        args = utils.get_args_raw(message)
+
         if args == "start":
-            if not self._running:
-                self._running = True
-                self._task = asyncio.create_task(self._loop())
-                await utils.answer(message, "🚀 LermanTime запущен!")
+            if not self.running:
+                self.running = True
+                asyncio.create_task(self.loop())
+                await utils.answer(message, "🚀 Запустил, время пошло тикать")
             else:
-                await utils.answer(message, "⚡ Уже запущено")
+                await utils.answer(message, "⚡ Уже крутится, не жми как бешеный")
+
         elif args == "stop":
-            if self._running:
-                self._running = False
-                await utils.answer(message, "🛑 LermanTime остановлен")
-            else:
-                await utils.answer(message, "⚡ Уже остановлено")
+            self.running = False
+            await utils.answer(message, "🛑 Всё, таймер умер")
+
         else:
             await utils.answer(message, "Используй: .lerman start / stop")
 
-    async def _loop(self):
-        while self._running:
+    async def loop(self):
+        while self.running:
             try:
-                now = datetime.utcnow() + timedelta(hours=6)
-                time_str = now.strftime("%H:%M")
-                new_name = f"Lerman | {time_str}"
-
-                await self._client(functions.account.UpdateProfileRequest(
-                    first_name=new_name
+                t = (datetime.utcnow() + timedelta(hours=6)).strftime("%H:%M")
+                await self.client(UpdateProfileRequest(
+                    first_name=f"Lerman | {t}"
                 ))
             except Exception as e:
                 print("Ошибка:", e)
 
-            await asyncio.sleep(60)  # меняем каждые 60 секунд
+            await asyncio.sleep(60)
