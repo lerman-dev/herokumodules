@@ -1,36 +1,50 @@
 from .. import loader, utils
 
 @loader.tds
-class KarmaWarnMod(loader.Module):
-    """Карма + warn система"""
+class RBSMod(loader.Module):
+    """Roleplay Ban System"""
 
-    strings = {"name": "KarmaWarn"}
+    strings = {"name": "RBS"}
 
     async def client_ready(self, client, db):
         self.db = db
-        self.karma = db.get("KarmaWarn", "karma", {})
-        self.warns = db.get("KarmaWarn", "warns", {})
+        self.karma = db.get("RBS", "karma", {})
+        self.warns = db.get("RBS", "warns", {})
 
     def save(self):
-        self.db.set("KarmaWarn", "karma", self.karma)
-        self.db.set("KarmaWarn", "warns", self.warns)
+        self.db.set("RBS", "karma", self.karma)
+        self.db.set("RBS", "warns", self.warns)
+
+    async def rbhelpcmd(self, message):
+        """.rbhelp — список команд"""
+
+        text = (
+            "⚙️ <b>RBS — система модерации</b>\n\n"
+            ".givekarma <число> — изменить карму\n"
+            ".warn <причина> — выдать варн\n"
+            ".ban <причина> — бан сообщение\n"
+            ".court — начать суд\n"
+            ".who — досье пользователя\n"
+        )
+
+        await utils.answer(message, text)
 
     async def givekarmacmd(self, message):
-        """.givekarma <число> (ответом)"""
+        """.givekarma <число>"""
 
         args = utils.get_args_raw(message)
 
         if not args:
-            return await utils.answer(message, "🤨 Укажи число")
+            return await utils.answer(message, "⚠️ Укажи число")
 
         try:
             value = int(args)
         except:
-            return await utils.answer(message, "🤨 Это не число")
+            return await utils.answer(message, "⚠️ Это не число")
 
         reply = await message.get_reply_message()
         if not reply:
-            return await utils.answer(message, "⚠️ Ответь на сообщение")
+            return await utils.answer(message, "⚠️ Ответь на сообщение пользователя")
 
         giver = await message.get_sender()
         target = await reply.get_sender()
@@ -54,13 +68,13 @@ class KarmaWarnMod(loader.Module):
         await reply.reply(text)
 
     async def warncmd(self, message):
-        """.warn <причина> (ответом)"""
+        """.warn <причина>"""
 
         reason = utils.get_args_raw(message) or "не указана"
 
         reply = await message.get_reply_message()
         if not reply:
-            return await utils.answer(message, "⚠️ Ответь на сообщение")
+            return await utils.answer(message, "⚠️ Ответь на сообщение пользователя")
 
         admin = await message.get_sender()
         target = await reply.get_sender()
@@ -76,6 +90,7 @@ class KarmaWarnMod(loader.Module):
         target_link = f'<a href="tg://user?id={target.id}">{target.first_name}</a>'
 
         if warns >= 2:
+
             text = (
                 f"🚫 {target_link} получил(а) бан навсегда\n"
                 f"👮 Администратор: {admin_link}\n"
@@ -86,6 +101,7 @@ class KarmaWarnMod(loader.Module):
             self.save()
 
         else:
+
             text = (
                 f"❗️ {target_link} получил(а) варн ({warns}/2)\n"
                 f"👮 Администратор: {admin_link}\n"
@@ -101,7 +117,7 @@ class KarmaWarnMod(loader.Module):
 
         reply = await message.get_reply_message()
         if not reply:
-            return await utils.answer(message, "⚠️ Ответь на сообщение")
+            return await utils.answer(message, "⚠️ Ответь на сообщение пользователя")
 
         admin = await message.get_sender()
         target = await reply.get_sender()
@@ -117,50 +133,48 @@ class KarmaWarnMod(loader.Module):
 
         await reply.reply(text)
 
+    async def courtcmd(self, message):
+        """.court"""
 
-        async def courtcmd(self, message):
-    """.court (ответом на сообщение)"""
+        reply = await message.get_reply_message()
+        if not reply:
+            return await utils.answer(message, "⚠️ Ответь на сообщение подсудимого")
 
-    reply = await message.get_reply_message()
-    if not reply:
-        return await utils.answer(message, "⚠️ Ответь на сообщение подсудимого")
+        judge = await message.get_sender()
+        target = await reply.get_sender()
 
-    judge = await message.get_sender()
-    target = await reply.get_sender()
+        judge_link = f'<a href="tg://user?id={judge.id}">{judge.first_name}</a>'
+        target_link = f'<a href="tg://user?id={target.id}">{target.first_name}</a>'
 
-    judge_link = f'<a href="tg://user?id={judge.id}">{judge.first_name}</a>'
-    target_link = f'<a href="tg://user?id={target.id}">{target.first_name}</a>'
+        text = (
+            f"⚖️ <b>Суд начался</b>\n\n"
+            f"👨‍⚖️ Судья: {judge_link}\n"
+            f"🧑 Подсудимый: {target_link}\n\n"
+            f"Ожидается приговор..."
+        )
 
-    text = (
-        f"⚖️ <b>Суд начался</b>\n\n"
-        f"👨‍⚖️ Судья: {judge_link}\n"
-        f"🧑 Подсудимый: {target_link}\n\n"
-        f"Ожидается приговор..."
-    )
+        await reply.reply(text)
 
-    await reply.reply(text)
+    async def whocmd(self, message):
+        """.who"""
 
+        reply = await message.get_reply_message()
+        if not reply:
+            return await utils.answer(message, "⚠️ Ответь на сообщение пользователя")
 
-async def whocmd(self, message):
-    """.who (ответом на сообщение)"""
+        target = await reply.get_sender()
+        uid = str(target.id)
 
-    reply = await message.get_reply_message()
-    if not reply:
-        return await utils.answer(message, "⚠️ Ответь на сообщение пользователя")
+        karma = self.karma.get(uid, 0)
+        warns = self.warns.get(uid, 0)
 
-    target = await reply.get_sender()
-    uid = str(target.id)
+        target_link = f'<a href="tg://user?id={target.id}">{target.first_name}</a>'
 
-    karma = self.karma.get(uid, 0)
-    warns = self.warns.get(uid, 0)
+        text = (
+            f"🕵️ <b>Досье пользователя</b>\n\n"
+            f"👤 Пользователь: {target_link}\n"
+            f"⭐ Карма: <b>{karma}</b>\n"
+            f"⚠️ Варны: <b>{warns}/2</b>"
+        )
 
-    target_link = f'<a href="tg://user?id={target.id}">{target.first_name}</a>'
-
-    text = (
-        f"🕵️ <b>Досье пользователя</b>\n\n"
-        f"👤 Пользователь: {target_link}\n"
-        f"⭐ Карма: <b>{karma}</b>\n"
-        f"⚠️ Варны: <b>{warns}/2</b>"
-    )
-
-    await reply.reply(text)
+        await reply.reply(text)
