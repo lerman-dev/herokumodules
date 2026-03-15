@@ -116,3 +116,51 @@ class KarmaWarnMod(loader.Module):
         )
 
         await reply.reply(text)
+
+
+        async def courtcmd(self, message):
+    """.court (ответом на сообщение)"""
+
+    reply = await message.get_reply_message()
+    if not reply:
+        return await utils.answer(message, "⚠️ Ответь на сообщение подсудимого")
+
+    judge = await message.get_sender()
+    target = await reply.get_sender()
+
+    judge_link = f'<a href="tg://user?id={judge.id}">{judge.first_name}</a>'
+    target_link = f'<a href="tg://user?id={target.id}">{target.first_name}</a>'
+
+    text = (
+        f"⚖️ <b>Суд начался</b>\n\n"
+        f"👨‍⚖️ Судья: {judge_link}\n"
+        f"🧑 Подсудимый: {target_link}\n\n"
+        f"Ожидается приговор..."
+    )
+
+    await reply.reply(text)
+
+
+async def whocmd(self, message):
+    """.who (ответом на сообщение)"""
+
+    reply = await message.get_reply_message()
+    if not reply:
+        return await utils.answer(message, "⚠️ Ответь на сообщение пользователя")
+
+    target = await reply.get_sender()
+    uid = str(target.id)
+
+    karma = self.karma.get(uid, 0)
+    warns = self.warns.get(uid, 0)
+
+    target_link = f'<a href="tg://user?id={target.id}">{target.first_name}</a>'
+
+    text = (
+        f"🕵️ <b>Досье пользователя</b>\n\n"
+        f"👤 Пользователь: {target_link}\n"
+        f"⭐ Карма: <b>{karma}</b>\n"
+        f"⚠️ Варны: <b>{warns}/2</b>"
+    )
+
+    await reply.reply(text)
