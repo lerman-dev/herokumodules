@@ -1,44 +1,81 @@
-from .. import loader, utils
+# -*- coding: utf-8 -*-
+import os
 import asyncio
 from datetime import datetime, timedelta
-from telethon.tl.functions.account import UpdateProfileRequest
+from pyrogram import Client, filters
+from command import fox_command, fox_sudo, who_message, get_text
 
-@loader.tds
-class LermanTime(loader.Module):
-    """Lerman | время в нике"""
+filename = os.path.basename(__file__)
+Module_Name = 'LermanTime'
 
-    strings = {"name": "LermanTime"}
+LANGUAGES = {
+    "en": {
+        "started": "🚀 <b>Started, time is ticking</b>",
+        "already_running": "⚡ <b>Already running, don't click like crazy</b>",
+        "stopped": "🛑 <b>Timer stopped</b>",
+        "usage": "📌 <b>Usage:</b> <code>.lerman start / stop</code>"
+    },
+    "ru": {
+        "started": "🚀 <b>Запустил, время пошло тикать</b>",
+        "already_running": "⚡ <b>Уже крутится, не жми как бешеный</b>",
+        "stopped": "🛑 <b>Всё, таймер умер</b>",
+        "usage": "📌 <b>Использование:</b> <code>.lerman start / stop</code>"
+    },
+    "ua": {
+        "started": "🚀 <b>Запустив, час пішов цокати</b>",
+        "already_running": "⚡ <b>Вже крутиться, не тисни як шалений</b>",
+        "stopped": "🛑 <b>Все, таймер помер</b>",
+        "usage": "📌 <b>Використання:</b> <code>.lerman start / stop</code>"
+    }
+}
 
-    async def client_ready(self, client, db):
-        self.client = client
-        self.running = False
+# Глобальная переменная для отслеживания состояния
+running = False
 
-    async def lermancmd(self, message):
-        args = utils.get_args_raw(message)
 
-        if args == "start":
-            if not self.running:
-                self.running = True
-                asyncio.create_task(self.loop())
-                await utils.answer(message, "🚀 Запустил, время пошло тикать")
-            else:
-                await utils.answer(message, "⚡ Уже крутится, не жми как бешеный")
-
-        elif args == "stop":
-            self.running = False
-            await utils.answer(message, "🛑 Всё, таймер умер")
-
+@Client.on_message(fox_command("lerman", Module_Name, filename, "[start/stop]") & fox_sudo())
+async def lerman_cmd(client, message):
+    global running
+    message = await who_message(client, message)
+    
+    args = message.text.split()
+    cmd = args[1] if len(args) > 1 else ""
+    
+    if cmd == "start":
+        if not running:
+            running = True
+            asyncio.create_task(loop(client))
+            text = get_text("lerman", "started", LANGUAGES=LANGUAGES)
+            await message.edit(text)
         else:
-            await utils.answer(message, "Используй: .lerman start / stop")
+            text = get_text("lerman", "already_running", LANGUAGES=LANGUAGES)
+            await message.edit(text)
+    
+    elif cmd == "stop":
+        running = False
+        text = get_text("lerman", "stopped", LANGUAGES=LANGUAGES)
+        await message.edit(text)
+    
+    else:
+        text = get_text("lerman", "usage", LANGUAGES=LANGUAGES)
+        await message.edit(text)
 
-    async def loop(self):
-        while self.running:
-            try:
-                t = (datetime.utcnow() + timedelta(hours=6)).strftime("%H:%M")
-                await self.client(UpdateProfileRequest(
-                    first_name=f"Lerman | {t}"
-                ))
-            except Exception as e:
-                print("Ошибка:", e)
 
-            await asyncio.sleep(60)
+async def loop(client):
+    """Основной цикл обновления имени"""
+    global running
+    
+    while running:
+        try:
+            # Получаем текущее время (UTC+6)
+            t = (datetime.utcnow() + timedelta(hours=6)).strftime("%H:%M")
+            new_name = f"Lerman | {t}"
+            
+            # Обновляем имя профиля
+            await client.update_profile(first_name=new_name)
+            
+        except Exception as e:
+            print(f"Ошибка при обновлении имени: {e}")
+        
+        # Ждём 60 секунд перед следующим обновлением
+        await asyncio.sleep(60)
