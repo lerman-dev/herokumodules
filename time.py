@@ -36,7 +36,7 @@ class LermanTime(loader.Module):
             try:
                 t = (datetime.utcnow() + timedelta(hours=6)).strftime("%H:%M")
                 await self.client(UpdateProfileRequest(
-                    first_name=f"Lerman | {t}"
+                    first_name=f"/home/lerman | {t}"
                 ))
             except Exception as e:
                 print("Ошибка:", e)
